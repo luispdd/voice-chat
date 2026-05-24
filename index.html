@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Web Voice Bot</title>
+    <link rel="stylesheet" href="static/style.css?v=2">
+</head>
+<body>
+
+<div class="card">
+    <h2>Offline AI Companion</h2>
+    
+    <div class="network-banner">
+        Connected via: <strong>https://__HOST_IP__:__PORT__</strong>
+    </div>
+
+    <div id="chatLog" class="chat-log"></div>
+    
+    <div class="controls">
+        <button id="actionBtn">Click to Record</button>
+        <button id="cancelBtn" class="cancel-btn" style="display: none;">Cancel Request</button>
+        <div id="status" class="status">Microphone ready</div>
+        <div id="metrics" class="metrics"></div>
+    </div>
+    
+    <audio id="audioPlayback" autoplay></audio>
+</div>
+
+<script src="static/app.js?v=2"></script>
+</body>
+</html>
