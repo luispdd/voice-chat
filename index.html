@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Local Web Voice Bot</title>
-    <link rel="stylesheet" href="static/style.css?v=2">
+    <link rel="stylesheet" href="static/style.css?v=3">
 </head>
 <body>
 
@@ -18,8 +18,13 @@
     <div id="chatLog" class="chat-log"></div>
     
     <div class="controls">
-        <button id="actionBtn">Click to Record</button>
+        <button id="actionBtn">Start Hands-Free Session</button>
         <button id="cancelBtn" class="cancel-btn" style="display: none;">Cancel Request</button>
+        
+        <div class="vumeter-container">
+            <div id="vumeter" class="vumeter"></div>
+        </div>
+
         <div id="status" class="status">Microphone ready</div>
         <div id="metrics" class="metrics"></div>
     </div>
@@ -27,6 +32,6 @@
     <audio id="audioPlayback" autoplay></audio>
 </div>
 
-<script src="static/app.js?v=2"></script>
+<script src="static/app.js?v=3"></script>
 </body>
 </html>

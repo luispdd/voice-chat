@@ -148,3 +148,27 @@ button.recording { background: #e04848; color: white; }
     text-align: center;
 }
 .metrics span { color: #a1a1aa; font-weight: bold; }
+
+/* Append this to the very bottom of your existing stylesheet */
+
+.vumeter-container {
+    width: 100%;
+    height: 6px;
+    background: #141416;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 5px;
+    border: 1px solid #29292e;
+}
+
+.vumeter {
+    height: 100%;
+    width: 0%;
+    background: #04d361;
+    transition: width 0.05s ease-out, background 0.1s;
+}
+
+/* Visually shifts the bar color to crimson when a valid speech pattern registers */
+.vumeter.talking {
+    background: #e04848;
+}
