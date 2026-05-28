@@ -5,7 +5,7 @@ import shutil
 import base64
 import socket
 import uuid
-import subprocess  # Added to execute FFmpeg transcoding operations
+import subprocess
 from fastapi import FastAPI, UploadFile, File, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +14,9 @@ from openai import OpenAI
 import onnxruntime as ort
 from piper.voice import PiperVoice
 from piper.config import PiperConfig
-from vosk import Model, KaldiRecognizer
+
+# Lightweight, platform-agnostic Moonshine ONNX speech engine
+import moonshine_onnx
 
 app = FastAPI()
 
@@ -26,24 +28,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static folder for separated style.css and app.js
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# Connection client mapping back to your local LM Studio instance
 client = OpenAI(base_url="http://127.0.0.1:1234/v1", api_key="lm-studio")
 
-print("📥 Initializing Vosk language model...")
-vosk_model = Model(lang="en-us")
-print("✅ Vosk Speech Engine online.")
+print("📥 Initializing Moonshine ONNX Transformer Engine...")
+# Instantiates model weights matrix locally at startup
+stt_model = moonshine_onnx.MoonshineOnnxModel(model_name="moonshine/tiny")
+print("✅ Moonshine ONNX Engine Online.")
 
 SYSTEM_INSTRUCTIONS = (
     "You are a helpful, brief web voice assistant. Keep answers short and conversational. "
     "Do not use bullet points or special markdown characters."
 )
 
+# Active user profile sessions mapped by incoming device IP addresses
 sessions = {}
 
+# --- LOCAL NETWORK DYNAMIC RESOLVER ---
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
+        # Pings Google DNS to find out which local network adapter interface is active
         s.connect(('8.8.8.8', 80))
         local_ip = s.getsockname()[0]
     except Exception:
@@ -55,15 +63,25 @@ def get_local_ip():
 HOST_IP = get_local_ip()
 PORT = 8000
 
+@app.on_event("startup")
+def startup_banner():
+    print("\n" + "="*60)
+    print("🚀 MULTI-DEVICE OFFLINE VOICE BOT SERVICE ACTIVE")
+    print(f"🏠 Local Host Access:     https://localhost:{PORT}")
+    print(f"🌐 LAN Remote Network Access: https://{HOST_IP}:{PORT}")
+    print("="*60 + "\n")
+
 @app.get("/")
 def get_index():
     with open("index.html", "r", encoding="utf-8") as f:
         html_content = f.read()
+    # Dynamic substitution to wire up remote mobile devices to the exact host adapter IP
     html_content = html_content.replace("__HOST_IP__", HOST_IP).replace("__PORT__", str(PORT))
     return HTMLResponse(content=html_content)
 
 @app.post("/chat")
 async def chat_endpoint(request: Request, file: UploadFile = File(...)):
+    # Isolate session conversation context data structure using the device IP
     client_ip = request.client.host
     if client_ip not in sessions:
         sessions[client_ip] = [{"role": "system", "content": SYSTEM_INSTRUCTIONS}]
@@ -75,13 +93,12 @@ async def chat_endpoint(request: Request, file: UploadFile = File(...)):
     temp_wav_output = f"user_voice_{request_id}.wav"
     output_audio_path = f"ai_response_{request_id}.wav"
     
-    # 1. Save whatever compressed payload the browser generated (webm, ogg, mp4)
     with open(temp_raw_input, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
     user_text = ""
     try:
-        # 2. Transcode any incoming codec format into 16kHz Mono PCM WAV using FFmpeg
+        # 1. Transcode compressed payload from browsers (ogg, webm, mp4) into raw WAV PCM
         ffmpeg_cmd = [
             "ffmpeg", "-y",
             "-i", temp_raw_input,
@@ -92,23 +109,14 @@ async def chat_endpoint(request: Request, file: UploadFile = File(...)):
         ]
         subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
 
-        # 3. Read the cleanly standardized WAV inside Kaldi
-        wf = wave.open(temp_wav_output, "rb")
-        rec = KaldiRecognizer(vosk_model, wf.getframerate())
-        while True:
-            data = wf.readframes(4000)
-            if len(data) == 0:
-                break
-            if rec.AcceptWaveform(data):
-                pass
-        result_json = json.loads(rec.FinalResult())
-        user_text = result_json.get("text", "").strip()
-        wf.close()
+        # 2. Extract speech tokens via Moonshine ONNX engine block
+        transcription_list = moonshine_onnx.transcribe(temp_wav_output, stt_model)
+        user_text = transcription_list[0].strip() if transcription_list else ""
+
     except Exception as e:
-        print(f"🚨 Transcoding/Transcription processing fault: {e}")
+        print(f"🚨 Moonshine Speech-To-Text processing fault: {e}")
         user_text = ""
     finally:
-        # Clean temporary input artifacts
         if os.path.exists(temp_raw_input): os.remove(temp_raw_input)
         if os.path.exists(temp_wav_output): os.remove(temp_wav_output)
 
@@ -120,6 +128,8 @@ async def chat_endpoint(request: Request, file: UploadFile = File(...)):
         })
         
     print(f"👤 [{client_ip}] Said: {user_text}")
+    
+    # Order of Operations fix: update conversation history array BEFORE querying local LLM
     device_history.append({"role": "user", "content": user_text})
     
     try:
@@ -130,12 +140,13 @@ async def chat_endpoint(request: Request, file: UploadFile = File(...)):
         )
         ai_text_response = response.choices[0].message.content
     except Exception as e:
-        print(f"🚨 Local LLM Exception: {e}")
+        print(f"🚨 Local LLM Engine Exception: {e}")
         ai_text_response = "I had a hitch processing that request."
         
     device_history.append({"role": "assistant", "content": ai_text_response})
     print(f"🤖 [AI to {client_ip}]: {ai_text_response}")
     
+    # Initialize Piper TTS Framework
     model_path = os.path.join("voice_models", "en_US-amy-medium.onnx")
     sess_opt = ort.SessionOptions()
     sess_opt.intra_op_num_threads = 2
