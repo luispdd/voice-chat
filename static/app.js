@@ -3,7 +3,6 @@ const cancelBtn = document.getElementById('cancelBtn');
 const statusText = document.getElementById('status');
 const metricsDiv = document.getElementById('metrics');
 const vumeter = document.getElementById('vumeter');
-const audioPlayback = document.getElementById('audioPlayback');
 const chatLog = document.getElementById('chatLog');
 
 let mediaRecorder = null;
@@ -11,57 +10,36 @@ let audioChunks = [];
 let globalStream = null;
 
 // VAD State Elements
-let isSessionActive = false;       // Master lock tracking if assistant engine is "Awake"
-let isRecordingActive = false;     // Tracks if a voice packet is actively streaming to disk
-let isProcessingNetwork = false;   // Network lock
+let isSessionActive = false;       
+let isRecordingActive = false;     
+let isProcessingNetwork = false;   
 let currentFetchAbortController = null;
 
-// Web Audio API Analytics Anchors
+// Audio Monitor Anchors
 let vadAudioContext = null;
 let vadAnalyser = null;
 let vadAnimationFrameId = null;
 
-// VAD Variable Calibration Constants 
-const VOLUME_THRESHOLD = 35;       // Sensitivity floor (lower numbers = more sensitive mic)
-const SILENCE_DURATION_MS = 1500;  // Required silence (in ms) to trigger automatic send
-let speechEndTimestamp = null;     // Tracks exact moment volume dipped below floor limit
+// Calibration Constraints 
+const VOLUME_THRESHOLD = 35;       
+const SILENCE_DURATION_MS = 1500;  
+let speechEndTimestamp = null;     
 
-actionBtn.innerText = "Start Hands-Free Session";
+// Stream Playback Engine
+let playbackAudioContext = null;
+let nextPlayTime = 0; 
+let isAudioCurrentlyPlaying = false; 
 
-function appendMessage(text, isUser, timerText = "") {
+// Tracks UI elements across stream cycles
+let currentAiMessageBubble = null;
+
+function appendMessage(text, isUser) {
     const msgDiv = document.createElement('div');
     msgDiv.classList.add('msg', isUser ? 'user-msg' : 'ai-msg');
-    
-    if (isUser || !timerText) {
-        msgDiv.innerText = text;
-    } else {
-        const textNode = document.createElement('div');
-        textNode.innerText = text;
-        msgDiv.appendChild(textNode);
-        
-        const timeNode = document.createElement('div');
-        timeNode.classList.add('msg-timer');
-        timeNode.innerText = timerText;
-        msgDiv.appendChild(timeNode);
-    }
-    
+    msgDiv.innerText = text;
     chatLog.appendChild(msgDiv);
     chatLog.scrollTop = chatLog.scrollHeight;
-}
-
-function b64toBlob(b64Data, contentType='', sliceSize=512) {
-    const byteCharacters = atob(b64Data);
-    const byteArrays = [];
-    for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
-        const slice = byteCharacters.slice(offset, offset + sliceSize);
-        const byteNumbers = new Array(slice.length);
-        for (let i = 0; i < slice.length; i++) {
-            byteNumbers[i] = slice.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        byteArrays.push(byteArray);
-    }
-    return new Blob(byteArrays, {type: contentType});
+    return msgDiv;
 }
 
 function getSupportedMimeType() {
@@ -72,27 +50,20 @@ function getSupportedMimeType() {
     return '';
 }
 
-// Master loop running 60fps to track your voice volume envelope
 function processAudioMonitorLoop() {
     if (!isSessionActive) return;
 
     const dataArray = new Uint8Array(vadAnalyser.frequencyBinCount);
     vadAnalyser.getByteFrequencyData(dataArray);
 
-    // Compute simple average amplitude from spectrum array
     let sum = 0;
-    for (let i = 0; i < dataArray.length; i++) {
-        sum += dataArray[i];
-    }
+    for (let i = 0; i < dataArray.length; i++) { sum += dataArray[i]; }
     const currentVolume = sum / dataArray.length;
 
-    // Visual Meter UI scaling adjustment
     const meterPercent = Math.min(100, (currentVolume / 120) * 100);
     vumeter.style.width = `${meterPercent}%`;
 
-    // --- VAD DECISION ROUTINE ENGINE ---
-    // Rule A: If AI is talking or thinking, ignore all room noise inputs
-    if (isProcessingNetwork || !audioPlayback.paused) {
+    if (isProcessingNetwork || isAudioCurrentlyPlaying) {
         vumeter.classList.remove('talking');
         speechEndTimestamp = null;
         vadAnimationFrameId = requestAnimationFrame(processAudioMonitorLoop);
@@ -100,24 +71,18 @@ function processAudioMonitorLoop() {
     }
 
     if (currentVolume > VOLUME_THRESHOLD) {
-        // Voice Detected! 
         vumeter.classList.add('talking');
-        speechEndTimestamp = null; // Clear out old silence memory counters
+        speechEndTimestamp = null; 
 
         if (!isRecordingActive) {
             triggerRecordingStart();
         }
     } else {
-        // Room Silence Detected
         vumeter.classList.remove('talking');
 
         if (isRecordingActive) {
-            // Anchor timestamp tracking precisely when the silence began
-            if (!speechEndTimestamp) {
-                speechEndTimestamp = Date.now();
-            }
+            if (!speechEndTimestamp) { speechEndTimestamp = Date.now(); }
 
-            // Check if silence has endured longer than our calibration constraint limit
             const elapsedSilence = Date.now() - speechEndTimestamp;
             if (elapsedSilence >= SILENCE_DURATION_MS) {
                 triggerRecordingStop();
@@ -152,8 +117,7 @@ async function triggerRecordingStart() {
 function triggerRecordingStop() {
     isRecordingActive = false;
     speechEndTimestamp = null;
-    
-    statusText.innerText = "Processing automated turn submission...";
+    statusText.innerText = "Processing...";
     actionBtn.innerText = "Processing...";
     actionBtn.classList.remove('recording');
 
@@ -162,7 +126,46 @@ function triggerRecordingStop() {
     }
 }
 
-function executeNetworkPayloadSend() {
+async function playRawPCMStreamChunk(arrayBufferData) {
+    if (!playbackAudioContext) {
+        playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 22050 });
+    }
+
+    const int16Array = new Int16Array(arrayBufferData);
+    if (int16Array.length === 0) return;
+
+    const float32Samples = new Float32Array(int16Array.length);
+    for (let i = 0; i < int16Array.length; i++) {
+        float32Samples[i] = int16Array[i] / 32768.0;
+    }
+
+    const audioBuffer = playbackAudioContext.createBuffer(1, float32Samples.length, 22050);
+    audioBuffer.getChannelData(0).set(float32Samples);
+
+    const source = playbackAudioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(playbackAudioContext.destination);
+
+    const currentTime = playbackAudioContext.currentTime;
+    if (nextPlayTime < currentTime) {
+        nextPlayTime = currentTime + 0.05; 
+    }
+
+    isAudioCurrentlyPlaying = true;
+    statusText.innerText = "AI Speaking...";
+
+    source.start(nextPlayTime);
+    nextPlayTime += audioBuffer.duration;
+
+    source.onended = () => {
+        if (playbackAudioContext && playbackAudioContext.currentTime >= nextPlayTime - 0.02) {
+            isAudioCurrentlyPlaying = false;
+            resetToListeningState();
+        }
+    };
+}
+
+async function executeNetworkPayloadSend() {
     if (audioChunks.length === 0) {
         resetToListeningState();
         return;
@@ -177,77 +180,127 @@ function executeNetworkPayloadSend() {
     isProcessingNetwork = true;
     cancelBtn.style.display = "block";
     statusText.innerText = "AI is thinking...";
+    currentAiMessageBubble = null;
 
     currentFetchAbortController = new AbortController();
     const signal = currentFetchAbortController.signal;
-
     const targetUrl = `${window.location.protocol}//${window.location.hostname}:8000/chat`;
-    const startCheckpoint = performance.now();
 
-    fetch(targetUrl, {
-        method: 'POST',
-        body: formData,
-        signal: signal
-    })
-    .then(response => response.json())
-    .then(data => {
-        const textCheckpoint = performance.now();
-        const serverRoundTripLapse = ((textCheckpoint - startCheckpoint) / 1000).toFixed(2);
+    try {
+        const response = await fetch(targetUrl, {
+            method: 'POST',
+            body: formData,
+            signal: signal
+        });
 
-        isProcessingNetwork = false;
-        currentFetchAbortController = null;
+        if (!response.ok) throw new Error("Server transmission error");
+
+        const reader = response.body.getReader();
+        nextPlayTime = 0; 
         
-        appendMessage(data.user_text, true);
+        let leftoverBuffer = new Uint8Array(0);
 
-        if (data.audio_base64) {
-            statusText.innerText = "Speaking...";
-            const audioBlobPlayback = b64toBlob(data.audio_base64, 'audio/wav');
-            const audioUrl = URL.createObjectURL(audioBlobPlayback);
-            audioPlayback.src = audioUrl;
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
             
-            const playCheckpoint = performance.now();
-            const clientPlaybackLapse = (playCheckpoint - textCheckpoint).toFixed(1);
-            const telemetryString = `STT + LLM: ${serverRoundTripLapse}s | TTS Setup: ${clientPlaybackLapse}ms`;
+            // Combine new data chunk with any leftover bytes from the previous read
+            let combined = new Uint8Array(leftoverBuffer.length + value.length);
+            combined.set(leftoverBuffer);
+            combined.set(value, leftoverBuffer.length);
             
-            appendMessage(data.ai_text, false, telemetryString);
-            metricsDiv.innerHTML = `STT + LLM: <span>${serverRoundTripLapse}s</span> | TTS Setup: <span>${clientPlaybackLapse}ms</span>`;
-            
-            audioPlayback.play();
-        } else {
-            cancelBtn.style.display = "none";
-            const telemetryString = `Server Processing: ${serverRoundTripLapse}s`;
-            appendMessage(data.ai_text, false, telemetryString);
-            metricsDiv.innerHTML = `Server Processing: <span>${serverRoundTripLapse}s</span>`;
-            resetToListeningState();
+            let offset = 0;
+            while (offset < combined.length) {
+                // Peek ahead to check what type of package has arrived
+                if (offset + 5 <= combined.length) {
+                    const header = String.fromCharCode(...combined.slice(offset, offset + 5));
+                    
+                    if (header === "TEXT:") {
+                        // Text packets are terminated by a newline character (\n)
+                        let newlineIndex = -1;
+                        for (let i = offset; i < combined.length; i++) {
+                            if (combined[i] === 10) { // 10 is the ASCII code for \n
+                                newlineIndex = i;
+                                break;
+                            }
+                        }
+                        
+                        if (newlineIndex !== -1) {
+                            const lineBytes = combined.slice(offset + 5, newlineIndex);
+                            const textLine = new TextDecoder().decode(lineBytes);
+                            
+                            // Route the text based on its internal target subheader string
+                            if (textLine.startsWith("USER:")) {
+                                appendMessage(textLine.replace("USER:", ""), true);
+                            } else if (textLine.startsWith("AI_TOKEN:")) {
+                                const token = textLine.replace("AI_TOKEN:", "");
+                                if (!currentAiMessageBubble) {
+                                    currentAiMessageBubble = appendMessage("", false);
+                                }
+                                currentAiMessageBubble.innerText += token;
+                                chatLog.scrollTop = chatLog.scrollHeight;
+                            } else if (textLine.startsWith("AI:")) {
+                                appendMessage(textLine.replace("AI:", ""), false);
+                            }
+                            
+                            offset = newlineIndex + 1;
+                            continue;
+                        } else {
+                            // Incomplete line, break out and wait for more data to arrive
+                            break;
+                        }
+                    } else if (header === "AUDIO") {
+                        // Ensure we have the full 6-byte "AUDIO:" tag prefix before reading data
+                        if (offset + 6 <= combined.length) {
+                            // Process audio payload frames in efficient 1024-byte chunks
+                            const payloadSize = 1024;
+                            if (offset + 6 + payloadSize <= combined.length) {
+                                const audioBytes = combined.slice(offset + 6, offset + 6 + payloadSize);
+                                await playRawPCMStreamChunk(audioBytes.buffer);
+                                offset += 6 + payloadSize;
+                                continue;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    } else {
+                        // Fallback fallback handler if bytes get unaligned
+                        offset++;
+                    }
+                } else {
+                    break;
+                }
+            }
+            // Retain unparsed stream remainders for the next reader cycle
+            leftoverBuffer = combined.slice(offset);
         }
-    })
-    .catch(err => {
-        isProcessingNetwork = false;
-        currentFetchAbortController = null;
-        metricsDiv.innerHTML = "";
+
+    } catch (err) {
+        console.error(err);
         if (err.name === 'AbortError') {
             statusText.innerText = "Canceled.";
         } else {
-            console.error(err);
-            statusText.innerText = "Communication failure.";
+            statusText.innerText = "Connection lost.";
         }
-        resetToListeningState();
-    });
+    } finally {
+        isProcessingNetwork = false;
+        currentFetchAbortController = null;
+        if (!isAudioCurrentlyPlaying) {
+            resetToListeningState();
+        }
+    }
 }
 
 function resetToListeningState() {
     cancelBtn.style.display = "none";
-    if (isSessionActive) {
+    if (isSessionActive && !isAudioCurrentlyPlaying && !isProcessingNetwork) {
         statusText.innerText = "Waiting for you to speak...";
         actionBtn.innerText = "Hands-Free Listening Active";
         actionBtn.classList.remove('recording');
     }
 }
-
-// Automatically bind the cleanup hook to reset listeners when AI voice narration runs dry
-audioPlayback.addEventListener('ended', () => {
-    resetToListeningState();
-});
 
 async function startHandsFreeSession() {
     metricsDiv.innerHTML = "";
@@ -257,22 +310,22 @@ async function startHandsFreeSession() {
         audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true } 
     });
 
-    // Create standard monitoring nodes
     vadAudioContext = new (window.AudioContext || window.webkitAudioContext)();
     const source = vadAudioContext.createMediaStreamSource(globalStream);
     vadAnalyser = vadAudioContext.createAnalyser();
-    vadAnalyser.fftSize = 256; // High frequency, light frame analytical slices
+    vadAnalyser.fftSize = 256; 
     source.connect(vadAnalyser);
 
     isSessionActive = true;
     resetToListeningState();
-    processAudioMonitorLoop(); // Kickoff loop
+    processAudioMonitorLoop(); 
 }
 
 function stopHandsFreeSession() {
     isSessionActive = false;
     isRecordingActive = false;
     isProcessingNetwork = false;
+    isAudioCurrentlyPlaying = false;
     speechEndTimestamp = null;
 
     if (currentFetchAbortController) currentFetchAbortController.abort();
@@ -281,9 +334,11 @@ function stopHandsFreeSession() {
     if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
     if (globalStream) globalStream.getTracks().forEach(track => track.stop());
     if (vadAudioContext) vadAudioContext.close();
-
-    audioPlayback.pause();
-    audioPlayback.src = "";
+    
+    if (playbackAudioContext) {
+        playbackAudioContext.close();
+        playbackAudioContext = null;
+    }
 
     actionBtn.classList.remove('recording');
     actionBtn.innerText = "Start Hands-Free Session";
@@ -306,8 +361,11 @@ actionBtn.addEventListener('click', (e) => {
 
 cancelBtn.addEventListener('click', () => {
     if (currentFetchAbortController) currentFetchAbortController.abort();
-    audioPlayback.pause();
-    audioPlayback.src = "";
+    if (playbackAudioContext) {
+        playbackAudioContext.close();
+        playbackAudioContext = null;
+    }
+    isAudioCurrentlyPlaying = false;
     isProcessingNetwork = false;
     isRecordingActive = false;
     audioChunks = [];
