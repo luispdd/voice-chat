@@ -5,6 +5,8 @@ import shutil
 import uuid
 import subprocess
 import re
+import socket
+import numpy as np
 from fastapi import FastAPI, UploadFile, File, Request
 from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,6 +47,20 @@ with open(model_path + ".json", "r", encoding="utf-8") as f:
 voice = PiperVoice(config=PiperConfig.from_dict(config_dict), session=session)
 print("✅ Piper TTS Engine Online.")
 
+# --- PROACTIVE NEURAL ENGINE WARM-UP ---
+print("🔥 Warming up neural network engines...")
+try:
+    # Force an initial transcription memory allocation check if supported
+    if hasattr(stt_model, 'warmup'):
+        stt_model.warmup()
+    
+    # Run a dummy voice pass through Piper to prime the ONNX inference threads in RAM
+    for _ in voice.synthesize("System online"):
+        pass
+    print("⚡ All models pre-loaded and fully warmed up in RAM!")
+except Exception as e:
+    print(f"⚠️ Warmup routine notification: {e}")
+
 SYSTEM_INSTRUCTIONS = (
     "You are a helpful, brief web voice assistant. Keep answers short and conversational. "
     "Do not use bullet points, asterisks, or special markdown characters."
@@ -53,7 +69,6 @@ SYSTEM_INSTRUCTIONS = (
 sessions = {}
 
 def get_local_ip():
-    import socket
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(('8.8.8.8', 80))
@@ -66,6 +81,15 @@ def get_local_ip():
 
 HOST_IP = get_local_ip()
 PORT = 8000
+
+@app.on_event("startup")
+async def print_startup_banner():
+    print("\n" + "="*60)
+    print("🚀 OFFLINE VOICE COMPANION SERVER INITIALIZED")
+    print("="*60)
+    print(f"🏠 Access from THIS machine:  https://127.0.0.1:{PORT}")
+    print(f"📱 Access from OTHER devices: https://{HOST_IP}:{PORT}")
+    print("="*60 + "\n")
 
 @app.get("/")
 def get_index():
@@ -108,7 +132,7 @@ async def chat_endpoint(request: Request, file: UploadFile = File(...)):
     if not user_text:
         def empty_gen():
             yield b"TEXT:USER:[Silence detected]\n"
-            yield b"TEXT:AI:I didn't catch that. Please try speaking clearly again.\n"
+            yield b"TEXT:AI_TOKEN:I didn't catch that. Please try speaking clearly again.\n"
         return StreamingResponse(empty_gen(), media_type="application/octet-stream")
 
     print(f"👤 [{client_ip}] Said: {user_text}")
@@ -116,7 +140,7 @@ async def chat_endpoint(request: Request, file: UploadFile = File(...)):
 
     def audio_stream_generator():
         try:
-            # First frame sent down the pipe contains your transcribed question text
+            # Yield user text first to display it immediately on response startup
             yield f"TEXT:USER:{user_text}\n".encode('utf-8')
 
             response_stream = client.chat.completions.create(
@@ -134,8 +158,9 @@ async def chat_endpoint(request: Request, file: UploadFile = File(...)):
                     text_buffer += token
                     full_ai_response += token
 
-                    # Send text tokens instantly to the UI as they generate word-by-word
-                    yield f"TEXT:AI_TOKEN:{token}\n".encode('utf-8')
+                    # Safely escape text tokens to protect packet boundaries
+                    safe_token = token.replace('\n', ' ')
+                    yield f"TEXT:AI_TOKEN:{safe_token}\n".encode('utf-8')
 
                     sentences = re.split(r'(?<=[.!?])\s+', text_buffer)
                     while len(sentences) > 1:
@@ -143,14 +168,17 @@ async def chat_endpoint(request: Request, file: UploadFile = File(...)):
                         text_buffer = " ".join(sentences)
                         
                         if completed_sentence:
-                            # Stream voice audio data with an AUDIO: tag prefix 
                             for audio_chunk in voice.synthesize(completed_sentence):
-                                yield b"AUDIO:" + audio_chunk.audio_int16_bytes
+                                raw_bytes = audio_chunk.audio_int16_bytes
+                                length_prefix = len(raw_bytes).to_bytes(4, byteorder='big')
+                                yield b"AUDIO:" + length_prefix + raw_bytes
 
             remaining_text = text_buffer.strip()
             if remaining_text:
                 for audio_chunk in voice.synthesize(remaining_text):
-                    yield b"AUDIO:" + audio_chunk.audio_int16_bytes
+                    raw_bytes = audio_chunk.audio_int16_bytes
+                    length_prefix = len(raw_bytes).to_bytes(4, byteorder='big')
+                    yield b"AUDIO:" + length_prefix + raw_bytes
 
             device_history.append({"role": "assistant", "content": full_ai_response})
             print(f"🤖 [AI to {client_ip}]: {full_ai_response}")

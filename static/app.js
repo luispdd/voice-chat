@@ -1,7 +1,6 @@
 const actionBtn = document.getElementById('actionBtn');
 const cancelBtn = document.getElementById('cancelBtn');
 const statusText = document.getElementById('status');
-const metricsDiv = document.getElementById('metrics');
 const vumeter = document.getElementById('vumeter');
 const chatLog = document.getElementById('chatLog');
 
@@ -30,7 +29,7 @@ let playbackAudioContext = null;
 let nextPlayTime = 0; 
 let isAudioCurrentlyPlaying = false; 
 
-// Tracks UI elements across stream cycles
+// Tracks active UI components across streaming updates
 let currentAiMessageBubble = null;
 
 function appendMessage(text, isUser) {
@@ -63,6 +62,7 @@ function processAudioMonitorLoop() {
     const meterPercent = Math.min(100, (currentVolume / 120) * 100);
     vumeter.style.width = `${meterPercent}%`;
 
+    // Operational Context Guard: Suppress auto-listening state triggers while AI acts
     if (isProcessingNetwork || isAudioCurrentlyPlaying) {
         vumeter.classList.remove('talking');
         speechEndTimestamp = null;
@@ -128,6 +128,7 @@ function triggerRecordingStop() {
 
 async function playRawPCMStreamChunk(arrayBufferData) {
     if (!playbackAudioContext) {
+        // LOCK RATE TO 22050Hz: Matches native raw output configuration for standard Piper configurations
         playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 22050 });
     }
 
@@ -204,22 +205,19 @@ async function executeNetworkPayloadSend() {
             const { done, value } = await reader.read();
             if (done) break;
             
-            // Combine new data chunk with any leftover bytes from the previous read
             let combined = new Uint8Array(leftoverBuffer.length + value.length);
             combined.set(leftoverBuffer);
             combined.set(value, leftoverBuffer.length);
             
             let offset = 0;
             while (offset < combined.length) {
-                // Peek ahead to check what type of package has arrived
-                if (offset + 5 <= combined.length) {
-                    const header = String.fromCharCode(...combined.slice(offset, offset + 5));
+                if (offset + 6 <= combined.length) {
+                    const header = String.fromCharCode(...combined.slice(offset, offset + 6));
                     
-                    if (header === "TEXT:") {
-                        // Text packets are terminated by a newline character (\n)
+                    if (header.startsWith("TEXT:")) {
                         let newlineIndex = -1;
                         for (let i = offset; i < combined.length; i++) {
-                            if (combined[i] === 10) { // 10 is the ASCII code for \n
+                            if (combined[i] === 10) { 
                                 newlineIndex = i;
                                 break;
                             }
@@ -229,7 +227,6 @@ async function executeNetworkPayloadSend() {
                             const lineBytes = combined.slice(offset + 5, newlineIndex);
                             const textLine = new TextDecoder().decode(lineBytes);
                             
-                            // Route the text based on its internal target subheader string
                             if (textLine.startsWith("USER:")) {
                                 appendMessage(textLine.replace("USER:", ""), true);
                             } else if (textLine.startsWith("AI_TOKEN:")) {
@@ -239,41 +236,40 @@ async function executeNetworkPayloadSend() {
                                 }
                                 currentAiMessageBubble.innerText += token;
                                 chatLog.scrollTop = chatLog.scrollHeight;
-                            } else if (textLine.startsWith("AI:")) {
-                                appendMessage(textLine.replace("AI:", ""), false);
                             }
                             
                             offset = newlineIndex + 1;
                             continue;
                         } else {
-                            // Incomplete line, break out and wait for more data to arrive
                             break;
                         }
-                    } else if (header === "AUDIO") {
-                        // Ensure we have the full 6-byte "AUDIO:" tag prefix before reading data
-                        if (offset + 6 <= combined.length) {
-                            // Process audio payload frames in efficient 1024-byte chunks
-                            const payloadSize = 1024;
-                            if (offset + 6 + payloadSize <= combined.length) {
-                                const audioBytes = combined.slice(offset + 6, offset + 6 + payloadSize);
+                    } else if (header === "AUDIO:") {
+                        if (offset + 10 <= combined.length) {
+                            const lengthBytes = combined.slice(offset + 6, offset + 10);
+                            
+                            // EXPLICIT WINDOW BINDING FIX: Ensures DataView references only our 4 length bytes, avoiding buffer reading slips.
+                            const view = new DataView(lengthBytes.buffer, lengthBytes.byteOffset, lengthBytes.byteLength);
+                            const payloadSize = view.getUint32(0, false); 
+                            
+                            if (offset + 10 + payloadSize <= combined.length) {
+                                const audioBytes = combined.slice(offset + 10, offset + 10 + payloadSize);
                                 await playRawPCMStreamChunk(audioBytes.buffer);
-                                offset += 6 + payloadSize;
+                                
+                                offset += 10 + payloadSize;
                                 continue;
                             } else {
-                                break;
+                                break; 
                             }
                         } else {
-                            break;
+                            break; 
                         }
                     } else {
-                        // Fallback fallback handler if bytes get unaligned
                         offset++;
                     }
                 } else {
                     break;
                 }
             }
-            // Retain unparsed stream remainders for the next reader cycle
             leftoverBuffer = combined.slice(offset);
         }
 
@@ -303,7 +299,6 @@ function resetToListeningState() {
 }
 
 async function startHandsFreeSession() {
-    metricsDiv.innerHTML = "";
     statusText.innerText = "Waking audio systems...";
 
     globalStream = await navigator.mediaDevices.getUserMedia({ 
