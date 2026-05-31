@@ -1,7 +1,7 @@
 import os
-import shutil
 import uuid
 import re
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, Request
 from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,7 +9,32 @@ from fastapi.staticfiles import StaticFiles
 
 from backend import config, stt, llm, tts
 
-app = FastAPI()
+# 1. Define the Lifespan Context Manager
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("\n" + "="*60)
+    print("🔥 FASTAPI LIFESPAN: INITIALIZING CHANNELS INDEPENDENTLY...")
+    print("="*60)
+    
+    # Force loading directly inside the running active app thread
+    stt.init_stt()
+    tts.init_tts()
+    llm.init_llm()
+    
+    print("\n" + "="*60)
+    print("🚀 OFFLINE VOICE COMPANION ACTIVE AND WARMED UP")
+    print("="*60)
+    print(f"🏠 Web Console App URL:      https://127.0.0.1:{config.PORT}")
+    print(f"📱 Local Area Network URL:   https://{config.HOST_IP}:{config.PORT}")
+    print(f"🧠 Selected Model Target:    [{config.ENGINE.upper()}] -> {config.MODEL}")
+    print("="*60 + "\n")
+    
+    yield  # The server handles web requests while hanging here
+    
+    print("🛑 Shutting down server engines...")
+
+# 2. Inject the lifespan handler into the FastAPI app shell
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,7 +44,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Static file asset hosting
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 sessions = {}
@@ -28,7 +52,6 @@ sessions = {}
 def get_index():
     with open("index.html", "r", encoding="utf-8") as f:
         html_content = f.read()
-    # Populate index placeholders with current network profiles
     html_content = html_content.replace("__HOST_IP__", config.HOST_IP).replace("__PORT__", str(config.PORT))
     return HTMLResponse(content=html_content)
 
@@ -39,20 +62,12 @@ async def chat_endpoint(request: Request, file: UploadFile = File(...)):
         sessions[client_ip] = [{"role": "system", "content": config.SYSTEM_INSTRUCTIONS}]
     
     device_history = sessions[client_ip]
-    request_id = str(uuid.uuid4())
-    temp_raw_input = f"raw_received_{request_id}"
-    temp_wav_output = f"user_voice_{request_id}.wav"
+    audio_payload_bytes = await file.read()
     
-    with open(temp_raw_input, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
-    user_text = stt.transcribe_voice_bytes(temp_raw_input, temp_wav_output)
+    user_text = stt.transcribe_voice_bytes(audio_payload_bytes)
     
-    if os.path.exists(temp_raw_input): os.remove(temp_raw_input)
-    if os.path.exists(temp_wav_output): os.remove(temp_wav_output)
-
     if not user_text:
-        def empty_gen():
+        async def empty_gen():
             yield b"TEXT:USER:[Silence detected]\n"
             yield b"TEXT:AI_TOKEN:I didn't catch that. Please try speaking clearly again.\n"
         return StreamingResponse(empty_gen(), media_type="application/octet-stream")
@@ -60,15 +75,20 @@ async def chat_endpoint(request: Request, file: UploadFile = File(...)):
     print(f"👤 [{client_ip}] Said: {user_text}")
     device_history.append({"role": "user", "content": user_text})
 
-    def audio_stream_generator():
+    if len(device_history) > 11:
+        print(f"🧹 Pruning conversation context window for client session: [{client_ip}]")
+        device_history = [device_history[0]] + device_history[-10:]
+        sessions[client_ip] = device_history
+
+    async def audio_stream_generator():
         try:
             yield f"TEXT:USER:{user_text}\n".encode('utf-8')
 
-            response_stream = llm.get_chat_stream(device_history)
+            response_stream = await llm.get_chat_stream(device_history)
             text_buffer = ""
             full_ai_response = ""
 
-            for chunk in response_stream:
+            async for chunk in response_stream:
                 token = chunk.choices[0].delta.content if chunk.choices[0].delta.content else ""
                 if token:
                     text_buffer += token
@@ -93,6 +113,6 @@ async def chat_endpoint(request: Request, file: UploadFile = File(...)):
             print(f"🤖 [AI to {client_ip}]: {full_ai_response}")
 
         except Exception as e:
-            print(f"🚨 Audio Stream Generator Exception: {e}")
+            print(f"🚨 Async Audio Stream Generator Exception: {e}")
 
     return StreamingResponse(audio_stream_generator(), media_type="application/octet-stream")
