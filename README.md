@@ -65,10 +65,10 @@ You can dynamically target any model currently available on your local system wi
   uv run main.py -- --model microsoft/Phi-4-mini-instruct
 
 * For Ollama: Match the tag name used when downloading the weights via your terminal.
-  uv run main.py -- --engine ollama --model qwen2.5:7b
+  uv run main.py -- --engine ollama --model qwen3.5:9b
 
 * Alternative syntax (Explicit Python call):
-  uv run python main.py --engine ollama --model qwen2.5:7b
+  uv run python main.py --engine ollama --model qwen3.5:9b
 
 ### 3. Launch with Ollama
 To switch your entire streaming text infrastructure over to Ollama, make sure the Ollama daemon service is active on your host platform (11434):

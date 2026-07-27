@@ -1,6 +1,6 @@
 import argparse
+import os
 import uvicorn
-from backend import config
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Modular Offline Voice Companion Application")
@@ -13,10 +13,13 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
 
-    # Seed global configurations first so the server can fetch them during initialization
-    config.initialize_global_settings(engine=args.engine, model=args.model, port=args.port)
+    # Pass configuration straight to the process environment
+    os.environ["ENGINE"] = args.engine
+    os.environ["MODEL"] = args.model
+    os.environ["PORT"] = str(args.port)
 
-    # Pass management straight to Uvicorn worker thread
+    from backend import config
+
     uvicorn.run(
         "backend.server:app",
         host="0.0.0.0",
