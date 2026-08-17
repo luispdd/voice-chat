@@ -1,37 +1,25 @@
-import os
-import socket
-import logging
+"""
+Voice-Chat Configuration.
 
-# Configure global timestamped logger (HH:MM:SS format)
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] %(message)s",
-    datefmt="%H:%M:%S"
-)
-logger = logging.getLogger("voice_companion")
+Imports shared configuration from backend.common and adds voice-chat specific settings.
+"""
 
-def get_local_ip():
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        local_ip = s.getsockname()[0]
-        s.close()
-        return local_ip
-    except Exception:
-        return "127.0.0.1"
+from backend.common.config import setup_logger, Config
 
-ENGINE = os.getenv("ENGINE", "lm-studio").lower()
-MODEL = os.getenv("MODEL", "google/gemma-3-4b-it-qat")
-PORT = int(os.getenv("PORT", "8000"))
-HOST_IP = get_local_ip()
+# [VOICE-CHAT SPECIFIC] - Initialize logger with project name
+logger = setup_logger("voice_companion")
 
-if ENGINE == "ollama":
-    BASE_URL = "http://localhost:11434/v1"
-else:
-    BASE_URL = "http://localhost:1234/v1"
-
+# [VOICE-CHAT SPECIFIC] - Voice Assistant System Instructions
 SYSTEM_INSTRUCTIONS = (
     "You are an empathetic, concise, and intelligent voice assistant. "
     "Do NOT output thinking steps, reasoning traces, markdown formatting (like asterisks or bold text), "
     "or emojis. Speak in natural, plain text, keeping responses direct and under 3 sentences."
 )
+
+# Initialize shared configuration
+config_instance = Config("voice_companion", logger)
+ENGINE = config_instance.ENGINE
+MODEL = config_instance.MODEL
+PORT = config_instance.PORT
+HOST_IP = config_instance.HOST_IP
+BASE_URL = config_instance.BASE_URL
