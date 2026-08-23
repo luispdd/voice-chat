@@ -21,7 +21,7 @@ let vadAnimationFrameId = null;
 
 // Calibration Constraints 
 const VOLUME_THRESHOLD = 35;       
-const SILENCE_DURATION_MS = 1500;  
+const SILENCE_DURATION_MS = 3000;  
 let speechEndTimestamp = null;     
 
 // Stream Playback Engine
