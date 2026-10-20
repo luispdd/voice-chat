@@ -32,8 +32,8 @@ voice-chatbot/
 ## Core Engine Components
 
 1. Frontend Voice Activity Detection (VAD): A continuous browser Web Audio monitor loop that detects vocal volume spikes, records fragments, and ships them over HTTP only when you stop speaking.
-2. Audio Transcription (STT): Moonshine ONNX (Tiny) processes incoming chunks within milliseconds.
-3. Inference Pipeline (LLM): Communicates token-by-token with your local inference backend via a streaming connection.
+2. Audio Transcription (STT): Whisper (whisper.cpp via `pywhispercpp==1.5.1`, default `small.en`) processes incoming chunks with high accuracy and low latency.
+3. Inference Pipeline (LLM): Communicates token-by-token with OpenAI, Ollama, LM Studio, OpenRouter, or custom OpenAI-compatible endpoints.
 4. Speech Synthesis (TTS): Piper TTS slices text sequences along syntax boundaries and streams raw PCM sound waves (22050Hz, Mono, Int16) back to the web client.
 
 ---
@@ -48,40 +48,58 @@ Ensure you have your environment variables and model weights set up correctly in
 
 ## 💻 Commands Required to Run the Project
 
-Always initiate the runtime using the `main.py` entrypoint script via `uv run`. To ensure your custom engine and model arguments are passed directly to the Python script instead of being intercepted by the package manager, you must use either the explicit interpreter syntax or the double-dash (`--`) separator.
+Always initiate the runtime using the `main.py` entrypoint script via `uv run`.
 
-### 1. Launch with LM Studio (Default)
-To run using LM Studio, make sure your application server is running locally on port 1234 with an active model loaded:
+### 1. Launch with OpenAI API
+To run with official OpenAI API:
 
-uv run main.py
+```bash
+uv run python main.py --engine openai --model gpt-4o-mini --api-key "sk-..."
+```
+
+* Engine used: OpenAI (https://api.openai.com/v1)
+* Default model: `gpt-4o-mini`
+
+### 2. Launch with a Custom OpenAI-Compatible Server (e.g. Local Proxy or vLLM)
+You can target any OpenAI-compatible server URL:
+
+```bash
+uv run python main.py --engine openai --base-url http://127.0.0.1:8888/v1 --model custom-model --api-key not-needed
+```
+
+### 3. Launch with LM Studio (Default)
+To run using LM Studio, make sure your application server is running locally on port 1234:
+
+```bash
+uv run python main.py
+```
 
 * Engine used: LM Studio (http://127.0.0.1:1234/v1)
-* Default model string: google/gemma-3-4b-it-qat
+* Default model: `google/gemma-3-4b-it-qat`
 
-### 2. Launch with a Custom Model or Alternative Tag
-You can dynamically target any model currently available on your local system without editing the Python source code by appending your arguments after a double-dash (`--`).
+### 4. Launch with Ollama
+To switch your streaming text infrastructure over to Ollama:
 
-* For LM Studio: Match the model identifier displayed at the top of your LM Studio application window.
-  uv run main.py -- --model microsoft/Phi-4-mini-instruct
-
-* For Ollama: Match the tag name used when downloading the weights via your terminal.
-  uv run main.py -- --engine ollama --model qwen3.5:9b
-
-* Alternative syntax (Explicit Python call):
-  uv run python main.py --engine ollama --model qwen3.5:9b
-
-### 3. Launch with Ollama
-To switch your entire streaming text infrastructure over to Ollama, make sure the Ollama daemon service is active on your host platform (11434):
-
-python main.py --engine ollama --model llama3
+```bash
+uv run python main.py --engine ollama --model llama3
+```
 
 * Engine used: Ollama (http://127.0.0.1:11434/v1)
-* Model targeted: llama3 (or any valid tag downloaded via ollama run)
+* Model targeted: `llama3`
 
-### 4. Adjust the Hosting Channel Port
-By default, the dashboard is served over port 8000. If that slot is blocked by another task, alter it using the --port flag:
+### 5. Custom Whisper STT Model
+By default, the STT service uses `small.en`. You can choose another Whisper GGML model:
 
-python main.py --port 8500
+```bash
+uv run python main.py --stt-model base.en
+```
+
+### 6. Adjust the Hosting Channel Port
+By default, the dashboard is served over port 8000:
+
+```bash
+uv run python main.py --port 8500
+```
 
 ---
 

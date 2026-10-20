@@ -45,8 +45,39 @@ sessions = {}
 def get_index():
     with open("index.html", "r", encoding="utf-8") as f:
         html_content = f.read()
-    html_content = html_content.replace("__HOST_IP__", config.HOST_IP).replace("__PORT__", str(config.PORT))
+    html_content = (
+        html_content
+        .replace("__HOST_IP__", config.HOST_IP)
+        .replace("__PORT__", str(config.PORT))
+        .replace("__ENGINE__", config.ENGINE)
+        .replace("__MODEL__", config.MODEL)
+    )
     return HTMLResponse(content=html_content)
+
+
+@app.get("/api/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "engine": config.ENGINE,
+        "model": config.MODEL,
+        "base_url": config.BASE_URL,
+        "stt": getattr(config, "STT_MODEL_NAME", "small.en"),
+    }
+
+
+@app.post("/api/transcribe")
+async def transcribe_endpoint(audio: UploadFile = File(None), file: UploadFile = File(None)):
+    """Transcribe uploaded audio file to text (supports both 'audio' and 'file' field names)."""
+    target = audio or file
+    if not target:
+        return {"text": ""}
+    content = await target.read()
+    if not content:
+        return {"text": ""}
+    text = stt.transcribe_voice_bytes(content)
+    return {"text": text}
+
 
 @app.post("/chat")
 async def chat_endpoint(request: Request, file: UploadFile = File(...)):
