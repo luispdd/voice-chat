@@ -172,3 +172,25 @@ button.recording { background: #e04848; color: white; }
 .vumeter.talking {
     background: #e04848;
 }
+
+.sensitivity-control {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 6px;
+    font-size: 13px;
+    color: #a8a8b3;
+}
+
+.sensitivity-control input[type="range"] {
+    flex: 1;
+    margin-left: 12px;
+    accent-color: #04d361;
+    cursor: pointer;
+    height: 4px;
+}
+
+.sensitivity-control strong {
+    color: #04d361;
+}

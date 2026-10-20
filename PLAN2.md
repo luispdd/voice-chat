@@ -11,7 +11,7 @@ This document outlines the phased milestone roadmap for converting the voice ass
 - Frontend Engine / Package Manager: Bun / bunx
 - Backend Framework: FastAPI
 - Python Virtual Environment & Dependency Manager: uv
-- Speech & LLM Engines: Faster-Whisper (STT), Piper (TTS), Native Ollama API
+- Speech & LLM Engines: Whisper.cpp via pywhispercpp==1.5.1 (STT), Piper (TTS), Multi-Engine LLM (OpenAI API, OpenRouter, Native Ollama API, LM Studio)
 - Database & Vector Search: MongoDB (Deferred to Milestone 4)
 - Deployment & Isolation: Docker + Docker Compose
 - Testing: Playwright / Cypress (E2E) + Pytest
@@ -40,7 +40,7 @@ voice-chat/                       <-- Nx Monorepo Root
 │   └── backend/                  <-- FastAPI Application (Managed via uv)
 │       ├── project.json          <-- Nx targets delegating to `uv run`
 │       ├── pyproject.toml
-│       └── backend/              <-- STT, TTS, Native Ollama stream modules
+│       └── backend/              <-- Whisper STT, Piper TTS, Multi-Engine LLM streaming modules
 │
 └── libs/                         <-- Shared types and schema definitions
 
@@ -61,15 +61,15 @@ voice-chat/                       <-- Nx Monorepo Root
 
 ### Backend Migration
 - [ ] Port existing FastAPI application logic into `apps/backend`.
-- [ ] Preserve Faster-Whisper (STT) audio decoding logic.
-- [ ] Preserve Native Ollama API streaming integration (`think: False` parameter).
+- [ ] Preserve Whisper.cpp (via `pywhispercpp==1.5.1`) STT audio decoding logic with 16kHz float32 pipeline, silence trimming, and pre-roll preservation.
+- [ ] Support OpenAI API (model selection, custom base URL, API key), OpenRouter, Native Ollama API (`think: False`), and LM Studio streaming integrations.
 - [ ] Preserve Piper (TTS) audio synthesis with Markdown and Emoji stripping function.
 - [ ] Keep session memory in-memory using Python dictionary session buffers.
 
 ### Frontend Migration & Dual-Input Support
 - [ ] Install and configure PrimeNG UI components in Angular 22.
 - [ ] Build Angular chat UI supporting both text field input and microphone toggle button.
-- [ ] Implement audio recording service using browser MediaRecorder API.
+- [ ] Implement continuous 16kHz AudioWorklet recording service with rolling pre-roll buffer (~480ms), RMS VAD, and user-adjustable sensitivity.
 - [ ] Implement chunked audio playback service for streaming responses.
 
 **Completion Criteria:** You can type a message or speak into the Angular UI and receive real-time transcribed audio responses from the backend without errors.

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Local Web Voice Bot</title>
-    <link rel="stylesheet" href="static/style.css?v=3">
+    <link rel="stylesheet" href="static/style.css?v=4">
 </head>
 <body>
 
@@ -25,6 +25,11 @@
             <div id="vumeter" class="vumeter"></div>
         </div>
 
+        <div class="sensitivity-control">
+            <span>Sensitivity: <strong id="sensitivityVal">High</strong></span>
+            <input type="range" id="sensitivitySlider" min="1" max="5" value="4" step="1" title="Adjust voice detection sensitivity">
+        </div>
+
         <div id="status" class="status">Microphone ready</div>
         <div id="metrics" class="metrics"></div>
     </div>
@@ -32,6 +37,6 @@
     <audio id="audioPlayback" autoplay></audio>
 </div>
 
-<script src="static/app.js?v=3"></script>
+<script src="static/app.js?v=4"></script>
 </body>
 </html>

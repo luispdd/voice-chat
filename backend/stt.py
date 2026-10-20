@@ -97,11 +97,11 @@ def trim_silence(
     audio: np.ndarray,
     samplerate: int = 16000,
     frame_duration_ms: int = 30,
-    padding_ms: int = 250,
+    padding_ms: int = 350,
 ) -> np.ndarray:
     """
     Trim extended leading and trailing silence from audio to prevent decoder
-    early-termination on long leading pauses.
+    early-termination on long leading pauses while preserving initial speech onset.
     """
     if len(audio) == 0:
         return audio
@@ -117,10 +117,10 @@ def trim_silence(
     frame_rms = np.sqrt(np.mean(frames ** 2, axis=1))
 
     max_rms = np.max(frame_rms)
-    if max_rms < 0.005:  # Audio is essentially pure silence
+    if max_rms < 0.003:  # Audio is essentially pure silence
         return audio
 
-    threshold = max(0.008, max_rms * 0.05)
+    threshold = max(0.003, max_rms * 0.03)
     active_frames = np.where(frame_rms > threshold)[0]
     if len(active_frames) == 0:
         return audio

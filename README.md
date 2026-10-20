@@ -11,30 +11,33 @@ The project has been refactored into a highly modular layout following Python be
 voice-chatbot/
 ├── backend/                   # Main Python application package
 │   ├── __init__.py            # Declares directory as a Python module
-│   ├── config.py              # Handles command-line arguments and global variables
-│   ├── llm.py                 # Connects to OpenAI-compatible endpoints (Ollama / LM Studio)
-│   ├── server.py              # Manages FastAPI server instance and HTTP streaming routes
-│   ├── stt.py                 # Loads and executes Moonshine ONNX transcription
-│   └── tts.py                 # Loads and executes Piper TTS voice engine
+│   ├── config.py              # Voice-chat specific configuration and logger
+│   ├── common/                # Shared reusable configuration, LLM, TTS, and model loading
+│   │   ├── config.py          # Environment parsing, IP discovery, and multi-engine routing
+│   │   ├── llm.py             # Unified streaming client (OpenAI, OpenRouter, LM Studio, Ollama)
+│   │   ├── model_manager.py   # HuggingFace voice model loader and cache manager
+│   │   └── tts.py             # Piper TTS audio synthesis engine
+│   ├── llm.py                 # Voice-chat adapter injecting multi-engine configuration
+│   ├── server.py              # FastAPI server, REST endpoints (/api/health, /api/transcribe), and streaming
+│   ├── stt.py                 # Loads and executes Whisper (whisper.cpp via pywhispercpp==1.5.1)
+│   └── tts.py                 # Voice-chat adapter for Piper TTS voice engine
 ├── static/                    # Frontend client assets
-│   ├── app.js                 # 60fps VAD monitor and binary audio router stream buffer
-│   └── style.css              # Dark-mode interface styles
-├── voice_models/              # Neural network voice profile storage
-│   ├── en_US-amy-medium.onnx  # Piper model weight checkpoints
-│   └── en_US-amy-medium.onnx.json
+│   ├── app.js                 # Continuous AudioWorklet RMS VAD with 480ms pre-roll & PCM audio player
+│   └── style.css              # Dark-mode interface styles with VU meter and sensitivity controls
 ├── cert.pem                   # Local SSL Certificate for secure microphone access
 ├── key.pem                    # Local SSL Private Key
-├── index.html                 # Main interface markup shell
+├── index.html                 # Main interface markup shell with sensitivity slider
 └── main.py                    # Entrypoint configuration launch script
 
 ---
 
 ## Core Engine Components
 
-1. Frontend Voice Activity Detection (VAD): A continuous browser Web Audio monitor loop that detects vocal volume spikes, records fragments, and ships them over HTTP only when you stop speaking.
-2. Audio Transcription (STT): Whisper (whisper.cpp via `pywhispercpp==1.5.1`, default `small.en`) processes incoming chunks with high accuracy and low latency.
-3. Inference Pipeline (LLM): Communicates token-by-token with OpenAI, Ollama, LM Studio, OpenRouter, or custom OpenAI-compatible endpoints.
-4. Speech Synthesis (TTS): Piper TTS slices text sequences along syntax boundaries and streams raw PCM sound waves (22050Hz, Mono, Int16) back to the web client.
+1. Frontend Voice Activity Detection (VAD): Continuous 16 kHz AudioWorklet stream calculating RMS energy with a 480ms pre-roll rolling buffer (preserving initial words/consonants), 1.4s silence completion, barge-in support, and adjustable UI sensitivity slider.
+2. Audio Transcription (STT): Whisper (whisper.cpp via `pywhispercpp==1.5.1`, default `small.en`) with silence boundary trimming, 16 kHz float32 normalization, and peak normalization fallback.
+3. Inference Pipeline (LLM): Communicates token-by-token with OpenAI (custom base URL, model, and API key), OpenRouter, LM Studio, or Ollama via an OpenAI-compatible streaming interface.
+4. Speech Synthesis (TTS): Piper TTS (downloaded automatically on-demand from Hugging Face Hub) slices text along sentence boundaries and streams raw PCM sound waves (22050Hz, Mono, Int16) with length framing back to the browser.
+
 
 ---
 
