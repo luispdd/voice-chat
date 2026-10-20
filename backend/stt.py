@@ -131,25 +131,16 @@ def trim_silence(
     return audio[start_idx:end_idx]
 
 
-def transcribe_voice_bytes(raw_audio_payload: bytes) -> str:
+def transcribe_audio_array(audio_data: np.ndarray) -> str:
     """
-    Transcribe raw audio bytes into text using Whisper (whisper.cpp).
-
-    Args:
-        raw_audio_payload: In-memory raw audio bytes from client microphone.
-
-    Returns:
-        Transcribed text string.
+    Transcribe a 16kHz mono float32 numpy audio array directly using Whisper.
+    Avoids container encoding/decoding overhead for direct microphone streaming.
     """
-    if not raw_audio_payload:
-        logger.info("[STT Diagnostics] Empty audio payload received.")
+    if audio_data is None or len(audio_data) == 0:
         return ""
 
-    try:
-        audio_data = audio_bytes_to_float32(raw_audio_payload)
-    except Exception as e:
-        logger.error(f"[STT Diagnostics] Failed to decode audio bytes: {e}")
-        return ""
+    if audio_data.dtype == np.int16:
+        audio_data = audio_data.astype(np.float32) / 32768.0
 
     duration = len(audio_data) / 16000
     if len(audio_data) < 1600:  # Less than 0.1s
@@ -185,6 +176,29 @@ def transcribe_voice_bytes(raw_audio_payload: bytes) -> str:
     except Exception as e:
         logger.error(f"[STT Diagnostics] Error transcribing audio: {e}")
         return ""
+
+
+def transcribe_voice_bytes(raw_audio_payload: bytes) -> str:
+    """
+    Transcribe raw audio bytes into text using Whisper (whisper.cpp).
+
+    Args:
+        raw_audio_payload: In-memory raw audio bytes from client microphone.
+
+    Returns:
+        Transcribed text string.
+    """
+    if not raw_audio_payload:
+        logger.info("[STT Diagnostics] Empty audio payload received.")
+        return ""
+
+    try:
+        audio_data = audio_bytes_to_float32(raw_audio_payload)
+    except Exception as e:
+        logger.error(f"[STT Diagnostics] Failed to decode audio bytes: {e}")
+        return ""
+
+    return transcribe_audio_array(audio_data)
 
 
 # Alias for compatibility with new-voice-chat services

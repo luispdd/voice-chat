@@ -17,4 +17,9 @@ def generate_speech_bytes(text_sentence: str) -> bytes:
     return common_tts.generate_speech_bytes(text_sentence)
 
 
-__all__ = ["init_tts", "generate_speech_bytes"]
+def synthesize_stream(text_sentence: str):
+    """Synthesize text to raw PCM int16 chunks."""
+    return common_tts.synthesize_stream(text_sentence)
+
+
+__all__ = ["init_tts", "generate_speech_bytes", "synthesize_stream"]

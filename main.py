@@ -41,6 +41,25 @@ if __name__ == "__main__":
         help="Web hosting channel port (default: 8000)"
     )
     
+    parser.add_argument(
+        "--mode",
+        default=os.getenv("MODE", "web"),
+        choices=["web", "standalone", "cli"],
+        help="Execution mode: 'web' (browser interface) or 'standalone'/'cli' (native PipeWire audio) (default: web)"
+    )
+    parser.add_argument(
+        "--speech-threshold",
+        type=float,
+        default=float(os.getenv("SPEECH_THRESHOLD", "0.012")),
+        help="VAD speech onset threshold for standalone mode (default: 0.012)"
+    )
+    parser.add_argument(
+        "--silence-duration",
+        type=float,
+        default=float(os.getenv("SILENCE_DURATION", "0.85")),
+        help="Seconds of silence to detect end of speech in standalone mode (default: 0.85)"
+    )
+    
     args = parser.parse_args()
 
     engine = "lm-studio" if args.engine.lower() in ("lmstudio", "lm-studio") else args.engine.lower()
@@ -75,14 +94,21 @@ if __name__ == "__main__":
     os.environ["API_KEY"] = api_key
     os.environ["STT_MODEL_NAME"] = args.stt_model
     os.environ["PORT"] = str(args.port)
+    os.environ["SPEECH_THRESHOLD"] = str(args.speech_threshold)
+    os.environ["SILENCE_DURATION"] = str(args.silence_duration)
 
-    from backend import config
+    mode = args.mode.lower()
+    if mode in ("standalone", "cli"):
+        from backend.standalone import run_standalone
+        run_standalone()
+    else:
+        from backend import config
 
-    uvicorn.run(
-        "backend.server:app",
-        host="0.0.0.0",
-        port=config.PORT,
-        ssl_certfile="cert.pem",
-        ssl_keyfile="key.pem",
-        reload=True
-    )
+        uvicorn.run(
+            "backend.server:app",
+            host="0.0.0.0",
+            port=config.PORT,
+            ssl_certfile="cert.pem",
+            ssl_keyfile="key.pem",
+            reload=True
+        )

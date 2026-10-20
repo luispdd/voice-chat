@@ -97,8 +97,28 @@ By default, the STT service uses `small.en`. You can choose another Whisper GGML
 uv run python main.py --stt-model base.en
 ```
 
-### 6. Adjust the Hosting Channel Port
-By default, the dashboard is served over port 8000:
+### 6. Standalone Mode (Zero-Browser, Native PipeWire Audio)
+For lowest latency and hands-free desktop voice chat without running a browser or web server, run in standalone mode:
+
+```bash
+# Standalone mode with local OpenAI-compatible endpoint
+uv run python main.py --mode standalone --engine openai --base-url http://127.0.0.1:8888/v1
+
+# Standalone mode with LM Studio
+uv run python main.py --mode standalone
+
+# Standalone mode with custom speech detection sensitivity
+uv run python main.py --mode standalone --speech-threshold 0.012 --silence-duration 0.85
+```
+
+In standalone mode:
+* Audio capture runs through PipeWire `pw-record` with in-memory VAD and a 400ms pre-roll buffer.
+* Silence cutoff is fast and responsive (default ~0.85s).
+* Audio playback streams sentence-by-sentence directly into PipeWire `pw-play`.
+* No WAV compression, no HTTP transfers, zero browser lag.
+
+### 7. Adjust the Hosting Channel Port (Web Mode)
+By default, the web dashboard is served over port 8000:
 
 ```bash
 uv run python main.py --port 8500
