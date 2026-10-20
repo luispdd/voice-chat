@@ -23,3 +23,5 @@ MODEL = config_instance.MODEL
 PORT = config_instance.PORT
 HOST_IP = config_instance.HOST_IP
 BASE_URL = config_instance.BASE_URL
+API_KEY = config_instance.API_KEY
+STT_MODEL_NAME = config_instance.STT_MODEL_NAME

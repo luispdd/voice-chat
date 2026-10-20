@@ -91,8 +91,8 @@ Audio → STT → Text → RAG retrieval → LLM → Response text → TTS → A
 
 ### Suggested services
 
-* `stt_service` (Whisper or equivalent)
-* `llm_service` (OpenAI / local model)
+* `stt_service` (Whisper.cpp via pywhispercpp==1.5.1 with 16kHz float32 pipeline & pre-roll buffer)
+* `llm_service` (OpenAI API with custom base URL, model, and key; Ollama; LM Studio; OpenRouter)
 * `rag_service`
 * `tts_service`
 * `chat_service`

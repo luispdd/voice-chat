@@ -31,16 +31,16 @@ def init_llm(
     Initialize LLM client for streaming completions.
     
     Args:
-        engine: "ollama" or "lm-studio"
-        base_url: API endpoint (e.g., "http://localhost:11434/v1")
-        api_key: API key (default "local-endpoint" for local engines)
+        engine: "lm-studio", "ollama", "openai", "openrouter", etc.
+        base_url: API endpoint (e.g., "https://api.openai.com/v1")
+        api_key: API key (e.g., OpenAI API key or "local-endpoint")
     """
     global _llm_instance, _llm_config
     
-    _llm_config = {"engine": engine, "base_url": base_url}
+    _llm_config = {"engine": engine, "base_url": base_url, "api_key": api_key}
     
     if engine != "ollama":
-        _llm_instance = AsyncOpenAI(base_url=base_url, api_key=api_key)
+        _llm_instance = AsyncOpenAI(base_url=base_url, api_key=api_key or "local-endpoint")
     
     print(f"✅ LLM Engine Ready: [{engine.upper()}] -> {base_url}")
 
@@ -56,6 +56,7 @@ async def get_chat_stream(
     model: str,
     engine: str = None,
     base_url: str = None,
+    api_key: str = None,
     temperature: float = 0.7,
     num_predict: int = 150
 ) -> AsyncGenerator:
@@ -65,8 +66,9 @@ async def get_chat_stream(
     Args:
         history_messages: Chat history with role/content
         model: Model name/tag
-        engine: "ollama" or "lm-studio" (uses global if None)
+        engine: "lm-studio", "ollama", "openai", "openrouter" (uses global if None)
         base_url: API endpoint (uses global if None)
+        api_key: API key (uses global if None)
         temperature: Sampling temperature
         num_predict: Max tokens to generate
     
@@ -77,6 +79,7 @@ async def get_chat_stream(
     
     engine = engine or _llm_config.get("engine", "lm-studio")
     base_url = base_url or _llm_config.get("base_url", "http://localhost:1234/v1")
+    api_key = api_key or _llm_config.get("api_key", "local-endpoint")
 
     # PATH A: NATIVE OLLAMA API
     if engine == "ollama":
@@ -113,10 +116,15 @@ async def get_chat_stream(
 
         return stream_ollama_native()
 
-    # PATH B: OPENAI COMPATIBLE (LM-Studio)
+    # PATH B: OPENAI COMPATIBLE (LM-Studio, OpenAI, OpenRouter, etc.)
     else:
-        if _llm_instance is None:
-            _llm_instance = AsyncOpenAI(base_url=base_url, api_key="local-endpoint")
+        if (
+            _llm_instance is None
+            or _llm_config.get("base_url") != base_url
+            or _llm_config.get("api_key") != api_key
+        ):
+            _llm_instance = AsyncOpenAI(base_url=base_url, api_key=api_key or "local-endpoint")
+            _llm_config = {"engine": engine, "base_url": base_url, "api_key": api_key}
 
         return await _llm_instance.chat.completions.create(
             model=model,
@@ -125,3 +133,4 @@ async def get_chat_stream(
             temperature=temperature,
             max_tokens=num_predict
         )
+

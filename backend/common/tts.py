@@ -68,3 +68,16 @@ def generate_speech_bytes(text_sentence: str) -> bytes:
         output_buffer += b"AUDIO:" + length_prefix + raw_bytes
 
     return output_buffer
+
+
+def synthesize_stream(text_sentence: str):
+    """
+    Synthesize text to an iterator yielding raw PCM int16 chunks directly.
+    Ideal for direct audio streaming to PipeWire / sounddevice without web framing.
+    """
+    global _tts_instance
+    if _tts_instance is None:
+        _tts_instance = load_piper_voice_model()
+
+    for audio_chunk in _tts_instance.synthesize(text_sentence):
+        yield audio_chunk.audio_int16_bytes

@@ -11,30 +11,33 @@ The project has been refactored into a highly modular layout following Python be
 voice-chatbot/
 ├── backend/                   # Main Python application package
 │   ├── __init__.py            # Declares directory as a Python module
-│   ├── config.py              # Handles command-line arguments and global variables
-│   ├── llm.py                 # Connects to OpenAI-compatible endpoints (Ollama / LM Studio)
-│   ├── server.py              # Manages FastAPI server instance and HTTP streaming routes
-│   ├── stt.py                 # Loads and executes Moonshine ONNX transcription
-│   └── tts.py                 # Loads and executes Piper TTS voice engine
+│   ├── config.py              # Voice-chat specific configuration and logger
+│   ├── common/                # Shared reusable configuration, LLM, TTS, and model loading
+│   │   ├── config.py          # Environment parsing, IP discovery, and multi-engine routing
+│   │   ├── llm.py             # Unified streaming client (OpenAI, OpenRouter, LM Studio, Ollama)
+│   │   ├── model_manager.py   # HuggingFace voice model loader and cache manager
+│   │   └── tts.py             # Piper TTS audio synthesis engine
+│   ├── llm.py                 # Voice-chat adapter injecting multi-engine configuration
+│   ├── server.py              # FastAPI server, REST endpoints (/api/health, /api/transcribe), and streaming
+│   ├── stt.py                 # Loads and executes Whisper (whisper.cpp via pywhispercpp==1.5.1)
+│   └── tts.py                 # Voice-chat adapter for Piper TTS voice engine
 ├── static/                    # Frontend client assets
-│   ├── app.js                 # 60fps VAD monitor and binary audio router stream buffer
-│   └── style.css              # Dark-mode interface styles
-├── voice_models/              # Neural network voice profile storage
-│   ├── en_US-amy-medium.onnx  # Piper model weight checkpoints
-│   └── en_US-amy-medium.onnx.json
+│   ├── app.js                 # Continuous AudioWorklet RMS VAD with 480ms pre-roll & PCM audio player
+│   └── style.css              # Dark-mode interface styles with VU meter and sensitivity controls
 ├── cert.pem                   # Local SSL Certificate for secure microphone access
 ├── key.pem                    # Local SSL Private Key
-├── index.html                 # Main interface markup shell
+├── index.html                 # Main interface markup shell with sensitivity slider
 └── main.py                    # Entrypoint configuration launch script
 
 ---
 
 ## Core Engine Components
 
-1. Frontend Voice Activity Detection (VAD): A continuous browser Web Audio monitor loop that detects vocal volume spikes, records fragments, and ships them over HTTP only when you stop speaking.
-2. Audio Transcription (STT): Moonshine ONNX (Tiny) processes incoming chunks within milliseconds.
-3. Inference Pipeline (LLM): Communicates token-by-token with your local inference backend via a streaming connection.
-4. Speech Synthesis (TTS): Piper TTS slices text sequences along syntax boundaries and streams raw PCM sound waves (22050Hz, Mono, Int16) back to the web client.
+1. Frontend Voice Activity Detection (VAD): Continuous 16 kHz AudioWorklet stream calculating RMS energy with a 480ms pre-roll rolling buffer (preserving initial words/consonants), 1.4s silence completion, barge-in support, and adjustable UI sensitivity slider.
+2. Audio Transcription (STT): Whisper (whisper.cpp via `pywhispercpp==1.5.1`, default `small.en`) with silence boundary trimming, 16 kHz float32 normalization, and peak normalization fallback.
+3. Inference Pipeline (LLM): Communicates token-by-token with OpenAI (custom base URL, model, and API key), OpenRouter, LM Studio, or Ollama via an OpenAI-compatible streaming interface.
+4. Speech Synthesis (TTS): Piper TTS (downloaded automatically on-demand from Hugging Face Hub) slices text along sentence boundaries and streams raw PCM sound waves (22050Hz, Mono, Int16) with length framing back to the browser.
+
 
 ---
 
@@ -48,40 +51,78 @@ Ensure you have your environment variables and model weights set up correctly in
 
 ## 💻 Commands Required to Run the Project
 
-Always initiate the runtime using the `main.py` entrypoint script via `uv run`. To ensure your custom engine and model arguments are passed directly to the Python script instead of being intercepted by the package manager, you must use either the explicit interpreter syntax or the double-dash (`--`) separator.
+Always initiate the runtime using the `main.py` entrypoint script via `uv run`.
 
-### 1. Launch with LM Studio (Default)
-To run using LM Studio, make sure your application server is running locally on port 1234 with an active model loaded:
+### 1. Launch with OpenAI API
+To run with official OpenAI API:
 
-uv run main.py
+```bash
+uv run python main.py --engine openai --model gpt-4o-mini --api-key "sk-..."
+```
+
+* Engine used: OpenAI (https://api.openai.com/v1)
+* Default model: `gpt-4o-mini`
+
+### 2. Launch with a Custom OpenAI-Compatible Server (e.g. Local Proxy or vLLM)
+You can target any OpenAI-compatible server URL:
+
+```bash
+uv run python main.py --engine openai --base-url http://127.0.0.1:8888/v1 --model custom-model --api-key not-needed
+```
+
+### 3. Launch with LM Studio (Default)
+To run using LM Studio, make sure your application server is running locally on port 1234:
+
+```bash
+uv run python main.py
+```
 
 * Engine used: LM Studio (http://127.0.0.1:1234/v1)
-* Default model string: google/gemma-3-4b-it-qat
+* Default model: `google/gemma-3-4b-it-qat`
 
-### 2. Launch with a Custom Model or Alternative Tag
-You can dynamically target any model currently available on your local system without editing the Python source code by appending your arguments after a double-dash (`--`).
+### 4. Launch with Ollama
+To switch your streaming text infrastructure over to Ollama:
 
-* For LM Studio: Match the model identifier displayed at the top of your LM Studio application window.
-  uv run main.py -- --model microsoft/Phi-4-mini-instruct
-
-* For Ollama: Match the tag name used when downloading the weights via your terminal.
-  uv run main.py -- --engine ollama --model qwen3.5:9b
-
-* Alternative syntax (Explicit Python call):
-  uv run python main.py --engine ollama --model qwen3.5:9b
-
-### 3. Launch with Ollama
-To switch your entire streaming text infrastructure over to Ollama, make sure the Ollama daemon service is active on your host platform (11434):
-
-python main.py --engine ollama --model llama3
+```bash
+uv run python main.py --engine ollama --model llama3
+```
 
 * Engine used: Ollama (http://127.0.0.1:11434/v1)
-* Model targeted: llama3 (or any valid tag downloaded via ollama run)
+* Model targeted: `llama3`
 
-### 4. Adjust the Hosting Channel Port
-By default, the dashboard is served over port 8000. If that slot is blocked by another task, alter it using the --port flag:
+### 5. Custom Whisper STT Model
+By default, the STT service uses `small.en`. You can choose another Whisper GGML model:
 
-python main.py --port 8500
+```bash
+uv run python main.py --stt-model base.en
+```
+
+### 6. Standalone Mode (Zero-Browser, Native PipeWire Audio)
+For lowest latency and hands-free desktop voice chat without running a browser or web server, run in standalone mode:
+
+```bash
+# Standalone mode with local OpenAI-compatible endpoint
+uv run python main.py --mode standalone --engine openai --base-url http://127.0.0.1:8888/v1
+
+# Standalone mode with LM Studio
+uv run python main.py --mode standalone
+
+# Standalone mode with custom speech detection sensitivity
+uv run python main.py --mode standalone --speech-threshold 0.012 --silence-duration 0.85
+```
+
+In standalone mode:
+* Audio capture runs through PipeWire `pw-record` with in-memory VAD and a 400ms pre-roll buffer.
+* Silence cutoff is fast and responsive (default ~0.85s).
+* Audio playback streams sentence-by-sentence directly into PipeWire `pw-play`.
+* No WAV compression, no HTTP transfers, zero browser lag.
+
+### 7. Adjust the Hosting Channel Port (Web Mode)
+By default, the web dashboard is served over port 8000:
+
+```bash
+uv run python main.py --port 8500
+```
 
 ---
 

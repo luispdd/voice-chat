@@ -7,7 +7,6 @@ requires-python = ">=3.13"
 dependencies = [
     "audioop-lts>=0.2.2",
     "fastapi>=0.136.1",
-    "useful-moonshine-onnx>=20251121",
     "huggingface-hub>=1.16.4",
     "numpy>=2.4.5",
     "openai>=2.37.0",
@@ -17,4 +16,5 @@ dependencies = [
     "sounddevice>=0.5.5",
     "soundfile>=0.13.1",
     "uvicorn>=0.47.0",
+    "pywhispercpp>=1.5.1",
 ]

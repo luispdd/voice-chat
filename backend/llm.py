@@ -17,7 +17,7 @@ def init_llm():
     common_llm.init_llm(
         engine=config.ENGINE,
         base_url=config.BASE_URL,
-        api_key="local-endpoint"
+        api_key=config.API_KEY
     )
 
 
@@ -25,13 +25,14 @@ async def get_chat_stream(history_messages: list):
     """
     [VOICE-CHAT SPECIFIC] Get chat stream with voice-chat config.
     
-    Automatically injects voice-chat MODEL, ENGINE, and BASE_URL.
+    Automatically injects voice-chat MODEL, ENGINE, BASE_URL, and API_KEY.
     """
     return await common_llm.get_chat_stream(
         history_messages=history_messages,
         model=config.MODEL,
         engine=config.ENGINE,
         base_url=config.BASE_URL,
+        api_key=config.API_KEY,
         temperature=0.7,
         num_predict=150
     )
